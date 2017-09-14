@@ -31,10 +31,10 @@ SOFTWARE.
 See more at http://blog.squix.ch
 */
 
-#include <time.h>
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <JsonListener.h>
+#include <time.h>
 
 #include "SSD1306Wire.h"
 #include "OLEDDisplayUiAux.h"
@@ -155,7 +155,7 @@ AqiCnClient aqi = AqiCnClient("seoul", "e5347327ca989ce719b85002dedceda4707df6e5
 void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 
 // Event Days
-#define EVENT_BASE_DAY    14
+#define EVENT_BASE_DAY    12
 #define EVENT_BASE_MONTH  9
 #define EVENT_BASE_YEAR   2017
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
@@ -487,24 +487,26 @@ void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.drawStringMaxWidth(display, x + 64, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, "Event Days");
 
   struct tm tv;
-  memset(&tv, sizeof(tv), 0);
+  memset(&tv, 0, sizeof(tv));
   tv.tm_mday = EVENT_BASE_DAY;
   tv.tm_mon = EVENT_BASE_MONTH - 1;
-  tv.tm_year = EVENT_BASE_YEAR - 1970;
-  time_t baseTime = mktime(&tv);
-  time_t curTime = ntpClient.getRawTime() - UTC_OFFSET * 3600UL;  // epoch: 1970
-  int dayCount =  ((curTime - baseTime) + (86400UL - 1)) / (86400UL);
-  //int dayCount =  curTime / 86400UL;
+  tv.tm_year = EVENT_BASE_YEAR - 1900;
+  tv.tm_isdst = 0;
+  time_t baseTime = mktime(&tv);/*epoch=year2000*/;
+  time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/ - UTC_OFFSET * 3600L;  // change epoch: 1970->2000
+  int dayCount =  ((curTime - baseTime) /* + (86400UL - 1) */) / (86400L);
+  //int dayCount =  curTime / 86400L;
+  //int dayCount =  baseTime / 86400L;
   
   char eventMsg[32];
   sprintf(eventMsg, "산이 %d 일째", dayCount);
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 
-  sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365, dayCount / 30, dayCount / 7);
-  //sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365 + 1970, dayCount % 365 / 30, dayCount % 365 / 7);
+  //sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365, dayCount / 30, dayCount / 7);
+  sprintf(eventMsg, "%s", ctime(&baseTime));
   nfd.setFont(Helvetica_14, NewPinetree_14);
-  nfd.drawStringMaxWidth(display, x + 64, 42 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
+  nfd.drawStringMaxWidth(display, x + 64, 32 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 }
 
 
