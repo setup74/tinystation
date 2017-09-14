@@ -35,13 +35,14 @@ See more at http://blog.squix.ch
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <JsonListener.h>
+
 #include "SSD1306Wire.h"
 #include "OLEDDisplayUiAux.h"
 #include "Wire.h"
 #include "WundergroundClient.h"
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
-#include "TimeClient.h"
+#include "NTPClient.h"   // within ESP8266_Weather_Station/
 #include "ThingspeakClient.h"
 #include "NcodeFontDraw.h"
 //#include "LucidaSansFont.h"
@@ -104,7 +105,7 @@ const int I2C_DISPLAY_ADDRESS = 0x3c;
 const int SDA_PIN = D2;
 const int SDC_PIN = D1;
 
-// TimeClient settings
+// ntpClient settings
 const float UTC_OFFSET = 9;
 
 // Initialize the oled display for address 0x3c
@@ -116,7 +117,7 @@ OLEDDisplayUiAux   ui( &display );
  * End Settings
  **************************/
 
-TimeClient timeClient(UTC_OFFSET);
+NTPClient ntpClient("0.pool.ntp.org", UTC_OFFSET * 3600L);
 
 // Set to false, if you prefere imperial/inches, Fahrenheit
 WundergroundClient wunderground(WUNDERGROUND_IS_METRIC);
@@ -154,8 +155,8 @@ AqiCnClient aqi = AqiCnClient("seoul", "e5347327ca989ce719b85002dedceda4707df6e5
 void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 
 // Event Days
-#define EVENT_BASE_DAY    32
-#define EVENT_BASE_MONTH  5
+#define EVENT_BASE_DAY    14
+#define EVENT_BASE_MONTH  9
 #define EVENT_BASE_YEAR   2017
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 
@@ -234,6 +235,8 @@ void setup() {
     }
   }
 
+  ntpClient.begin();
+
   // MQTT Client Setup
   mqttClient.setServer(mqttServer, mqttPort);
   mqttClient.setCallback(mqttCallback);
@@ -304,7 +307,7 @@ void drawProgress(OLEDDisplay *display, int percentage, String label1, String la
 
 void updateData(OLEDDisplay *display) {
   drawProgress(display, 10, "Updating", "Time");
-  timeClient.updateTime();
+  ntpClient.update();
 
   drawProgress(display, 30, "Updating", "Weather");
   wunderground.updateConditions(WUNDERGROUND_API_KEY, WUNDERGROUND_LANGUAGE, WUNDERGROUND_COUNTRY, WUNDERGROUND_CITY);
@@ -316,7 +319,7 @@ void updateData(OLEDDisplay *display) {
   drawProgress(display, 60, "Updating", "AQI Data");
   aqi.doUpdate();
 
-  lastUpdate = timeClient.getFormattedTime();
+  lastUpdate = ntpClient.getFormattedTime();
   readyForWeatherUpdate = false;
 
   // MQTT Reconnect Check
@@ -345,7 +348,7 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.setFont(Helvetica_14, NewPinetree_14);
   nfd.drawStringMaxWidth(display, 64 + x, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
   
-  String time = timeClient.getFormattedTime();
+  String time = ntpClient.getFormattedTime();
   time.toCharArray(s, sizeof(s));
   nfd.setFont(Helvetica_Bold_24, NewPinetree_Bold_24);
   nfd.drawStringMaxWidth(display, 64 + x, 30 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
@@ -397,7 +400,7 @@ void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
 void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
   display->setColor(WHITE);
   display->setFont(ArialMT_Plain_10);
-  String time = timeClient.getFormattedTime().substring(0, 5);
+  String time = ntpClient.getFormattedTime().substring(0, 5);
   display->setTextAlignment(TEXT_ALIGN_LEFT);
   display->drawString(0, 54, time);
   display->setTextAlignment(TEXT_ALIGN_RIGHT);
@@ -483,22 +486,23 @@ void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.setFont(Helvetica_12, NewPinetree_12);
   nfd.drawStringMaxWidth(display, x + 64, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, "Event Days");
 
-  struct tm tv = { 0 };
+  struct tm tv;
+  memset(&tv, sizeof(tv), 0);
   tv.tm_mday = EVENT_BASE_DAY;
   tv.tm_mon = EVENT_BASE_MONTH - 1;
-  tv.tm_year = EVENT_BASE_YEAR - 1900;
+  tv.tm_year = EVENT_BASE_YEAR - 1970;
   time_t baseTime = mktime(&tv);
-  time_t curTime = timeClient.getCurrentEpochWithUtcOffset();
-  int dayCount =  ((curTime - baseTime) + (24 * 3600 - 1)) / (24 * 3600);
-
-  wunderground.getDate();
-
+  time_t curTime = ntpClient.getRawTime() - UTC_OFFSET * 3600UL;  // epoch: 1970
+  int dayCount =  ((curTime - baseTime) + (86400UL - 1)) / (86400UL);
+  //int dayCount =  curTime / 86400UL;
+  
   char eventMsg[32];
   sprintf(eventMsg, "산이 %d 일째", dayCount);
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 
   sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365, dayCount / 30, dayCount / 7);
+  //sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365 + 1970, dayCount % 365 / 30, dayCount % 365 / 7);
   nfd.setFont(Helvetica_14, NewPinetree_14);
   nfd.drawStringMaxWidth(display, x + 64, 42 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 }
