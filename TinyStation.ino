@@ -63,7 +63,7 @@ NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart800KbpsMethod> strip(PixelCount, PixelP
 RgbColor rgb_black(0, 0, 0);
 RgbColor rgb_connecting(2, 2, 2);
 RgbColor rgb_progress(0, 3, 3);
-RgbColor rgb_frame_index(3, 3, 0);
+RgbColor rgb_frame_index(0, 3, 3);
 RgbColor rgb_mqtt_noti(8, 8, 8);
 
 // AQI Client
