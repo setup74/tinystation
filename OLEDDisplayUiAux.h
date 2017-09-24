@@ -103,7 +103,7 @@ struct LoadingStage {
 };
 
 typedef void (*FrameCallback)(OLEDDisplay *display,  OLEDDisplayUiState* state, int16_t x, int16_t y);
-typedef void (*AuxCallback)(void);
+typedef void (*AuxCallback)(int frameIndex, int frameCount);
 typedef void (*OverlayCallback)(OLEDDisplay *display,  OLEDDisplayUiState* state);
 typedef void (*LoadingDrawFunction)(OLEDDisplay *display, LoadingStage* stage, uint8_t progress);
 

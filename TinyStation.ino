@@ -31,10 +31,10 @@ SOFTWARE.
 See more at http://blog.squix.ch
 */
 
+#include <time.h>
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <JsonListener.h>
-#include <time.h>
 
 #include "SSD1306Wire.h"
 #include "OLEDDisplayUiAux.h"
@@ -43,11 +43,15 @@ See more at http://blog.squix.ch
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
 #include "NTPClient.h"   // within ESP8266_Weather_Station/
-#include "ThingspeakClient.h"
 #include "NcodeFontDraw.h"
-//#include "LucidaSansFont.h"
 #include "HelveticaFont.h"
 #include "NewPinetreeFont.h"
+
+// defined in mk_gmtime.c and gmtime_r.c
+extern "C" {
+time_t mk_gmtime(const struct tm * timeptr);
+struct tm *gmtime_r(const time_t * timer, struct tm * timeptr);
+}
 
 // RGB LED Strip
 #include <NeoPixelBus.h>
@@ -56,9 +60,11 @@ const uint8_t PixelPin = 2;  // make sure to set this to the correct pin, ignore
 // Uart method is good for the Esp-01 or other pin restricted modules
 // NOTE: These will ignore the PIN and use GPI02 pin (D4 in WeMos d1 mini)
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart800KbpsMethod> strip(PixelCount, PixelPin);
+RgbColor rgb_black(0, 0, 0);
 RgbColor rgb_connecting(2, 2, 2);
 RgbColor rgb_progress(0, 3, 3);
-RgbColor rgb_mqttnoti(8, 8, 8);
+RgbColor rgb_frame_index(3, 3, 0);
+RgbColor rgb_mqtt_noti(8, 8, 8);
 
 // AQI Client
 #include "AqiCnClient.h"
@@ -94,6 +100,9 @@ int mqttPort = 1883;
 const char *mqttUser = "your mqtt client id";
 const char *mqttPwd = "your mqtt client passwd";
 const char *mqttTopic = "your mqtt topping for messages to this client";
+// ntpClient settings
+const float UTC_OFFSET = 9;
+const char NTP_SERVER = "0.pool.ntp.org";
 #endif
 #include "_SiteConfig.h"
 
@@ -105,9 +114,6 @@ const int I2C_DISPLAY_ADDRESS = 0x3c;
 const int SDA_PIN = D2;
 const int SDC_PIN = D1;
 
-// ntpClient settings
-const float UTC_OFFSET = 9;
-
 // Initialize the oled display for address 0x3c
 // sda-pin=14 and sdc-pin=12
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
@@ -117,12 +123,10 @@ OLEDDisplayUiAux   ui( &display );
  * End Settings
  **************************/
 
-NTPClient ntpClient("0.pool.ntp.org", UTC_OFFSET * 3600L);
+NTPClient ntpClient(NTP_SERVER, UTC_OFFSET * 3600L);
 
-// Set to false, if you prefere imperial/inches, Fahrenheit
 WundergroundClient wunderground(WUNDERGROUND_IS_METRIC);
 
-ThingspeakClient thingspeak;
 
 // flag changed in the ticker function every 10 minutes
 bool readyForWeatherUpdate = false;
@@ -147,16 +151,17 @@ void setReadyForWeatherUpdate();
 // LED strip display set
 void stripProgress(int cur, int max, RgbColor c);
 void stripTrying(int cur, int max, RgbColor c);
-void stripAQI(void);
-void stripMQTT(void);
+void stripFrameIndex(int frameIndex, int frameCount);
+void stripAQI(int frameIndex, int frameCount);
+void stripMQTT(int frameIndex, int frameCount);
 
 // AQI Client
 AqiCnClient aqi = AqiCnClient("seoul", "e5347327ca989ce719b85002dedceda4707df6e5");
 void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 
 // Event Days
-#define EVENT_BASE_DAY    12
-#define EVENT_BASE_MONTH  9
+#define EVENT_BASE_DAY    31
+#define EVENT_BASE_MONTH  5
 #define EVENT_BASE_YEAR   2017
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 
@@ -179,7 +184,7 @@ NcodeFontDraw nfd(Helvetica_18, NewPinetree_18, 1);
 // frames are the single views that slide from right to left
 #if 1
 FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawEventDay, drawMQTT };
-AuxCallback auxes[]    = { stripAQI,     stripAQI,           stripAQI,     stripMQTT };
+AuxCallback auxes[]    = { stripFrameIndex, stripFrameIndex, stripFrameIndex, stripFrameIndex };
 int numberOfFrames = 4;
 #else
 FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawForecast, drawAQI,  drawMQTT };
@@ -312,12 +317,11 @@ void updateData(OLEDDisplay *display) {
   drawProgress(display, 30, "Updating", "Weather");
   wunderground.updateConditions(WUNDERGROUND_API_KEY, WUNDERGROUND_LANGUAGE, WUNDERGROUND_COUNTRY, WUNDERGROUND_CITY);
 
-  drawProgress(display, 50, "Updating", "Forecasts");
-  wunderground.updateForecast(WUNDERGROUND_API_KEY, WUNDERGROUND_LANGUAGE, WUNDERGROUND_COUNTRY, WUNDERGROUND_CITY);
+  //drawProgress(display, 50, "Updating", "Forecasts");
+  //wunderground.updateForecast(WUNDERGROUND_API_KEY, WUNDERGROUND_LANGUAGE, WUNDERGROUND_COUNTRY, WUNDERGROUND_CITY);
 
-  // get AQI data
-  drawProgress(display, 60, "Updating", "AQI Data");
-  aqi.doUpdate();
+  //drawProgress(display, 60, "Updating", "AQI Data");
+  //aqi.doUpdate();
 
   lastUpdate = ntpClient.getFormattedTime();
   readyForWeatherUpdate = false;
@@ -340,11 +344,20 @@ void updateData(OLEDDisplay *display) {
   delay(1000);
 }
 
+const char *wday_str[7] = {
+  "일", "월", "화", "수", "목", "금", "토"
+};
+
 void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   char s[100];
-    
-  String date = wunderground.getDate();
-  date.toCharArray(s, sizeof(s));
+
+  //String date = wunderground.getDate();
+  //date.toCharArray(s, sizeof(s));
+
+  time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/;  // change epoch: 1970->2000
+  struct tm tv;
+  gmtime_r(&curTime, &tv);
+  sprintf(s, "%04d-%02d-%02d %s요일", tv.tm_year + 1900, tv.tm_mon + 1, tv.tm_mday, wday_str[tv.tm_wday]);
   nfd.setFont(Helvetica_14, NewPinetree_14);
   nfd.drawStringMaxWidth(display, 64 + x, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
   
@@ -440,23 +453,27 @@ void stripTrying(int cur, int max, RgbColor c) {
   strip.Show();
 }
 
-void stripAQI(void) {
-  RgbColor c = RgbColor(aqi.r * 4 / 255, aqi.g * 4 / 255, aqi.b * 4 / 255);
-  RgbColor black = RgbColor(0, 0, 0);
-  strip.SetPixelColor(0, (aqi.val >= 0)?   c : black);
-  strip.SetPixelColor(1, (aqi.val >= 50)?  c : black);
-  strip.SetPixelColor(2, (aqi.val >= 100)? c : black);
-  strip.SetPixelColor(3, (aqi.val >= 150)? c : black);
+void stripFrameIndex(int frameIndex, int frameCount) {
+  // led strip to show pending message counts
+  for (int i = 0; i < 4; i++) 
+      strip.SetPixelColor(i, (i + 1 == 4 * (frameIndex + 1) / frameCount)? rgb_frame_index : rgb_black);
   strip.Show();
 }
 
-void stripMQTT(void) {
-  // led strip to show pending message counts
-  RgbColor black = RgbColor(0, 0, 0);
-  strip.SetPixelColor(0, rgb_mqttnoti);
-  strip.SetPixelColor(1, black);
-  strip.SetPixelColor(2, black);
-  strip.SetPixelColor(3, black);
+void stripAQI(int frameIndex, int frameCount) {
+  RgbColor c = RgbColor(aqi.r * 4 / 255, aqi.g * 4 / 255, aqi.b * 4 / 255);
+  strip.SetPixelColor(0, (aqi.val >= 0)?   c : rgb_black);
+  strip.SetPixelColor(1, (aqi.val >= 50)?  c : rgb_black);
+  strip.SetPixelColor(2, (aqi.val >= 100)? c : rgb_black);
+  strip.SetPixelColor(3, (aqi.val >= 150)? c : rgb_black);
+  strip.Show();
+}
+
+void stripMQTT(int frameIndex, int frameCount) {
+  strip.SetPixelColor(0, rgb_mqtt_noti);
+  strip.SetPixelColor(1, rgb_black);
+  strip.SetPixelColor(2, rgb_black);
+  strip.SetPixelColor(3, rgb_mqtt_noti);
   strip.Show();
 }
 
@@ -484,29 +501,26 @@ void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t
 
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   nfd.setFont(Helvetica_12, NewPinetree_12);
-  nfd.drawStringMaxWidth(display, x + 64, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, "Event Days");
-
+  nfd.drawStringMaxWidth(display, x + 64, 2 + y, nfd.TEXT_ALIGN_CENTER, 128, "Event Days");
+  
   struct tm tv;
   memset(&tv, 0, sizeof(tv));
   tv.tm_mday = EVENT_BASE_DAY;
   tv.tm_mon = EVENT_BASE_MONTH - 1;
   tv.tm_year = EVENT_BASE_YEAR - 1900;
   tv.tm_isdst = 0;
-  time_t baseTime = mktime(&tv);/*epoch=year2000*/;
-  time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/ - UTC_OFFSET * 3600L;  // change epoch: 1970->2000
-  int dayCount =  ((curTime - baseTime) /* + (86400UL - 1) */) / (86400L);
-  //int dayCount =  curTime / 86400L;
-  //int dayCount =  baseTime / 86400L;
+  time_t baseTime = mk_gmtime(&tv) + UTC_OFFSET * 3600L;/*epoch=year2000*/;
+  time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/;  // change epoch: 1970->2000
+  int dayCount =  curTime / 86400L - baseTime / 86400UL;  // dayCount starts at 0
   
   char eventMsg[32];
-  sprintf(eventMsg, "산이 %d 일째", dayCount);
+  sprintf(eventMsg, "산이 %d 일째", dayCount + 1);  // start at 1
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 
-  //sprintf(eventMsg, "%d년 | %d개월 | %d주", dayCount / 365, dayCount / 30, dayCount / 7);
-  sprintf(eventMsg, "%s", ctime(&baseTime));
-  nfd.setFont(Helvetica_14, NewPinetree_14);
-  nfd.drawStringMaxWidth(display, x + 64, 32 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
+  sprintf(eventMsg, "%d개월 (%d주%d일)", dayCount / 30, dayCount / 7, dayCount % 7);
+  nfd.setFont(Helvetica_18, NewPinetree_18);
+  nfd.drawStringMaxWidth(display, x + 64, 42 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 }
 
 
@@ -524,7 +538,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 void drawMQTT(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   nfd.setFont(Helvetica_12, NewPinetree_12);
-  nfd.drawStringMaxWidth(display, x + 64, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, "Message");
+  nfd.drawStringMaxWidth(display, x + 64, 2 + y, nfd.TEXT_ALIGN_CENTER, 128, "Message");
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, mqttMsg);
 }

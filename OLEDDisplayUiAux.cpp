@@ -307,7 +307,7 @@ void OLEDDisplayUiAux::drawFrame(){
        this->enableIndicator();
        (this->frameFunctions[this->getNextFrameNumber()])(this->display, &this->state, x1, y1);
        if (this->auxCount)
-         (this->auxFunctions[this->getNextFrameNumber() % this->auxCount])();
+         (this->auxFunctions[this->getNextFrameNumber() % this->auxCount])(this->getNextFrameNumber(), this->frameCount);
 
        // Build up the indicatorDrawState
        if (drawenCurrentFrame && !this->state.isIndicatorDrawen) {
@@ -334,7 +334,7 @@ void OLEDDisplayUiAux::drawFrame(){
       this->enableIndicator();
       (this->frameFunctions[this->state.currentFrame])(this->display, &this->state, 0, 0);
       if (this->auxCount)
-        (this->auxFunctions[this->state.currentFrame % this->auxCount])();
+        (this->auxFunctions[this->state.currentFrame % this->auxCount])(this->state.currentFrame, this->frameCount);
       break;
   }
 }
