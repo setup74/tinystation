@@ -357,9 +357,9 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/;  // change epoch: 1970->2000
   struct tm tv;
   gmtime_r(&curTime, &tv);
-  sprintf(s, "%04d-%02d-%02d %s요일", tv.tm_year + 1900, tv.tm_mon + 1, tv.tm_mday, wday_str[tv.tm_wday]);
-  nfd.setFont(Helvetica_14, NewPinetree_14);
-  nfd.drawStringMaxWidth(display, 64 + x, 4 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
+  sprintf(s, "%d.%d.%d (%s)", tv.tm_year + 1900, tv.tm_mon + 1, tv.tm_mday, wday_str[tv.tm_wday]);
+  nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
+  nfd.drawStringMaxWidth(display, 64 + x, 6 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
   
   String time = ntpClient.getFormattedTime();
   time.toCharArray(s, sizeof(s));
@@ -372,19 +372,19 @@ void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t
     
   String weather = wunderground.getWeatherText();
   weather.toCharArray(s, sizeof(s));
-  nfd.setFont(Helvetica_14, NewPinetree_14);
-  nfd.drawStringMaxWidth(display, 60 + x, 10 + y, nfd.TEXT_ALIGN_LEFT, 128, s);
+  nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
+  nfd.drawStringMaxWidth(display, 58 + x, 10 + y, nfd.TEXT_ALIGN_LEFT, 128, s);
 
   String temp = wunderground.getCurrentTemp() + "°C";
   temp.toCharArray(s, sizeof(s));
   nfd.setFont(Helvetica_Bold_24, NewPinetree_Bold_24);
-  nfd.drawStringMaxWidth(display, 60 + x, 30 + y, nfd.TEXT_ALIGN_LEFT, 128, s);
+  nfd.drawStringMaxWidth(display, 58 + x, 30 + y, nfd.TEXT_ALIGN_LEFT, 128, s);
 
   display->setFont(Meteocons_Plain_42);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   String weatherIcon = wunderground.getTodayIcon();
   int weatherIconWidth = display->getStringWidth(weatherIcon);
-  display->drawString(30 + x, 12 + y, weatherIcon);
+  display->drawString(29 + x, 12 + y, weatherIcon);
 }
 
 void drawForecast(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
@@ -518,8 +518,8 @@ void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 
-  sprintf(eventMsg, "%d개월 (%d주%d일)", dayCount / 30, dayCount / 7, dayCount % 7);
-  nfd.setFont(Helvetica_18, NewPinetree_18);
+  sprintf(eventMsg, "%d개월+%d : %d주+%d", dayCount / 30, dayCount % 30, dayCount / 7, dayCount % 7);
+  nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
   nfd.drawStringMaxWidth(display, x + 64, 42 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 }
 
