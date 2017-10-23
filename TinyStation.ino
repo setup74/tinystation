@@ -220,6 +220,7 @@ void setup() {
   int wi = 0;
   int counter = 0;
   int counter_max = 24;
+  WiFi.mode(WIFI_STA);
   WiFi.begin(wifi[wi].ssid, wifi[wi].pwd);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
