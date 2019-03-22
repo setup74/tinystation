@@ -175,6 +175,20 @@ int value = 0;
 void drawMQTT(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 
+
+// MH-Z19B
+#include "MHZ.h"
+// pin for uart reading
+#define CO2_IN 10
+// pin for pwm reading
+//#define MH_Z19_RX D4  // D7
+//#define MH_Z19_TX D0  // D6
+#define MH_Z19_RX D7
+#define MH_Z19_TX D6
+MHZ co2(MH_Z19_RX, MH_Z19_TX, CO2_IN, MHZ19B);
+void drawCO2(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
+
+
 // NcodeFont
 NcodeFontDraw nfd(Helvetica_18, NewPinetree_18, 1);
 
@@ -183,6 +197,10 @@ NcodeFontDraw nfd(Helvetica_18, NewPinetree_18, 1);
 // this array keeps function pointers to all frames
 // frames are the single views that slide from right to left
 #if 1
+FrameCallback frames[] = { drawDateTime, drawCO2, drawEventDay };
+AuxCallback auxes[]    = { stripFrameIndex, stripFrameIndex, stripFrameIndex };
+int numberOfFrames = 3;
+#elif 1
 FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawEventDay, drawMQTT };
 AuxCallback auxes[]    = { stripFrameIndex, stripFrameIndex, stripFrameIndex, stripFrameIndex };
 int numberOfFrames = 4;
@@ -497,6 +515,28 @@ void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t
   nfd.drawStringMaxWidth(display, 64 + x, 46 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
 }
 
+
+// MH-Z19B CO2 Sensor
+
+void drawCO2(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  char s[100];
+
+  if (co2.isPreHeating()) {
+    sprintf(s, "Preheating...");
+    nfd.setFont(Helvetica_Bold_18, NewPinetree_Bold_18);
+    nfd.drawStringMaxWidth(display, 64 + x, 22 + y, nfd.TEXT_ALIGN_CENTER, 128, s);    
+  }
+  else {
+    int ppm_uart = co2.readCO2UART();
+    int temparature = co2.getLastTemperature();
+    sprintf(s, "CO2: %d PPM", ppm_uart);
+    nfd.setFont(Helvetica_Bold_18, NewPinetree_Bold_18);
+    nfd.drawStringMaxWidth(display, 64 + x, 16 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
+    sprintf(s, "TEMP: %d C", temparature);
+    nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
+    nfd.drawStringMaxWidth(display, 64 + x, 36 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
+  }
+}
 
 // Event Day Display
 
