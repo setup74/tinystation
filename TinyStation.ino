@@ -31,21 +31,40 @@ SOFTWARE.
 See more at http://blog.squix.ch
 */
 
+
+#define USE_NTP       1
+#define USE_AQI       0
+#define USE_WEATHER   0
+#define USE_EVENTDAY  1
+#define USE_MQTT      0
+#define USE_CO2       1
+#define USE_PMS       1
+
+#define USE_WIFI      (USE_NTP || USE_EVENTDAY || USE_AQI || USE_WEATHER || USE_MQTT)
+
+#if USE_WIFI
 #include <time.h>
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <JsonListener.h>
+#endif
 
 #include "SSD1306Wire.h"
 #include "OLEDDisplayUiAux.h"
 #include "Wire.h"
+#if USE_WEATHER
 #include "WundergroundClient.h"
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
+#endif
+#if USE_NTP
 #include "NTPClient.h"   // within ESP8266_Weather_Station/
+#endif
+
 #include "NcodeFontDraw.h"
 #include "HelveticaFont.h"
 #include "NewPinetreeFont.h"
+
 
 // defined in mk_gmtime.c and gmtime_r.c
 extern "C" {
@@ -66,11 +85,13 @@ RgbColor rgb_progress(0, 3, 3);
 RgbColor rgb_frame_index(0, 3, 3);
 RgbColor rgb_mqtt_noti(8, 8, 8);
 
-// AQI Client
+#if USE_AQI
 #include "AqiCnClient.h"
+#endif
 
-// MQTT Client
+#if USE_MQTT
 #include <PubSubClient.h>
+#endif
 
 
 /***************************
@@ -116,24 +137,27 @@ const int SDC_PIN = D1;
 
 // Initialize the oled display for address 0x3c
 // sda-pin=14 and sdc-pin=12
-SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
-OLEDDisplayUiAux   ui( &display );
+SSD1306Wire display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
+OLEDDisplayUiAux ui( &display );
 
 /***************************
  * End Settings
  **************************/
 
+#if USE_NTP
 NTPClient ntpClient(NTP_SERVER, UTC_OFFSET * 3600L);
+#endif
 
+#if USE_WEATHER
 WundergroundClient wunderground(WUNDERGROUND_IS_METRIC);
+#endif
 
-
+#if USE_WIFI
 // flag changed in the ticker function every 10 minutes
 bool readyForWeatherUpdate = false;
-
 String lastUpdate = "--";
-
 Ticker ticker;
+#endif
 
 //declaring prototypes
 void drawProgress(OLEDDisplay *display, int percentage, String label1, String label2);
@@ -155,17 +179,19 @@ void stripFrameIndex(int frameIndex, int frameCount);
 void stripAQI(int frameIndex, int frameCount);
 void stripMQTT(int frameIndex, int frameCount);
 
-// AQI Client
+#if USE_AQI
 AqiCnClient aqi = AqiCnClient("seoul", "e5347327ca989ce719b85002dedceda4707df6e5");
 void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
+#endif
 
-// Event Days
+#if USE_EVENTDAY
 #define EVENT_BASE_DAY    31
 #define EVENT_BASE_MONTH  5
 #define EVENT_BASE_YEAR   2017
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
+#endif
 
-// MQTT Client
+#if USE_MQTT
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 // received msg
@@ -174,52 +200,84 @@ long lastMsg = 0;
 int value = 0;
 void drawMQTT(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
+#endif
 
-
-// MH-Z19B
+#if USE_CO2
 #include "MHZ.h"
-// pin for uart reading
 #define CO2_IN 10
-// pin for pwm reading
-//#define MH_Z19_RX D4  // D7
-//#define MH_Z19_TX D0  // D6
-#define MH_Z19_RX D7
-#define MH_Z19_TX D6
+#define MH_Z19_RX D8
+#define MH_Z19_TX D7
 MHZ co2(MH_Z19_RX, MH_Z19_TX, CO2_IN, MHZ19B);
 void drawCO2(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
+#endif
+
+#if USE_PMS
+#include "PMS.h"
+#define PMS_RESET D5
+#define PMS_SET   D6
+PMS pms(Serial);
+PMS::DATA data;
+#endif
 
 
 // NcodeFont
 NcodeFontDraw nfd(Helvetica_18, NewPinetree_18, 1);
 
-
 // Add frames
 // this array keeps function pointers to all frames
 // frames are the single views that slide from right to left
-#if 1
-FrameCallback frames[] = { drawDateTime, drawCO2, drawEventDay };
-AuxCallback auxes[]    = { stripFrameIndex, stripFrameIndex, stripFrameIndex };
-int numberOfFrames = 3;
-#elif 1
-FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawEventDay, drawMQTT };
-AuxCallback auxes[]    = { stripFrameIndex, stripFrameIndex, stripFrameIndex, stripFrameIndex };
-int numberOfFrames = 4;
-#else
-FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawForecast, drawAQI,  drawMQTT };
-AuxCallback auxes[]    = { stripAQI,     stripAQI,           stripAQI,     stripAQI, stripMQTT };
-int numberOfFrames = 5;
+FrameCallback frames[] = {
+#if USE_NTP
+  drawDateTime,
 #endif
-
-
-OverlayCallback overlays[] = { drawHeaderOverlay };
-int numberOfOverlays = 1;
+#if USE_EVENT_DAY
+  drawEventDay,
+#endif
+#if USE_WEATHER
+  drawCurrentWeather,
+  drawForecast,
+#endif
+#if USE_AQI
+  drawAQI,
+#endif
+#if USE_MQTT
+  drawMQTT,
+#endif
+#if USE_CO2
+  drawCO2,
+#endif
+#if USE_PMS
+  drawPMS,
+#endif
+};
+AuxCallback auxes[]    = {
+#if USE_NTP
+  stripFrameIndex,
+#endif
+#if USE_EventDay
+  stripFrameIndex,
+#endif
+#if USE_WEATHER
+  stripFrameIndex,
+  stripFrameIndex,
+#endif
+#if USE_AQI
+  stripAQI,
+#endif
+#if USE_MQTT
+  stripMQTT,
+#endif
+#if USE_CO2
+  stripFrameIndex,
+#endif
+#if USE_PMS
+  stripFrameIndex,
+#endif
+};
+int numberOfFrames = sizeof(frames) / sizeof(FrameCallback);
 
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println();
-  Serial.println();
-
   // this resets all the neopixels to an off state
   strip.Begin();
   strip.Show();
@@ -235,6 +293,17 @@ void setup() {
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.setContrast(255);
 
+#if USE_PMS
+  Serial.begin(9600);
+  pinMode(PMS_RESET, OUTPUT);
+  pinMode(PMS_SET, OUTPUT);
+  digitalWrite(PMS_RESET, HIGH);
+  digitalWrite(PMS_SET, HIGH);
+  pms.passiveMode();  
+  pms.wakeUp();
+#endif
+
+#if USE_WIFI
   int wi = 0;
   int counter = 0;
   int counter_max = 24;
@@ -242,7 +311,6 @@ void setup() {
   WiFi.begin(wifi[wi].ssid, wifi[wi].pwd);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
     display.clear();
     nfd.setFont(Helvetica_14, NewPinetree_14);
     nfd.drawStringMaxWidth(&display, 64, 4, nfd.TEXT_ALIGN_CENTER, 128, "Connecting");
@@ -258,18 +326,19 @@ void setup() {
       WiFi.begin(wifi[wi].ssid, wifi[wi].pwd);
     }
   }
+#endif
 
+#if USE_NTP
   ntpClient.begin();
+#endif
 
-  // MQTT Client Setup
+#if USE_MQTT
   mqttClient.setServer(mqttServer, mqttPort);
   mqttClient.setCallback(mqttCallback);
+#endif
 
   ui.setTargetFPS(30);
   
-  ui.setActiveSymbol(activeSymbole);
-  ui.setInactiveSymbol(inactiveSymbole);
-
   // You can change this to
   // TOP, LEFT, BOTTOM, RIGHT
   ui.setIndicatorPosition(BOTTOM);
@@ -290,19 +359,22 @@ void setup() {
   // Inital UI takes care of initalising the display too.
   ui.init();
 
-  Serial.println("");
-
+#if USE_WIFI
   updateData(&display);
-
   ticker.attach(UPDATE_INTERVAL_SECS, setReadyForWeatherUpdate);
+#endif
 }
 
 void loop() {
+#if USE_WIFI
   if (readyForWeatherUpdate && ui.getUiState()->frameState == FIXED)
     updateData(&display);
+#endif
 
+#if USE_MQTT
   if (mqttClient.connected())
     mqttClient.loop();
+#endif
 
   int remainingTimeBudget = ui.update();
   if (remainingTimeBudget > 0) {
@@ -330,9 +402,14 @@ void drawProgress(OLEDDisplay *display, int percentage, String label1, String la
 }
 
 void updateData(OLEDDisplay *display) {
+
+#if USE_NTP
   drawProgress(display, 10, "Updating", "Time");
   ntpClient.update();
+  lastUpdate = ntpClient.getFormattedTime();
+#endif
 
+#if USE_WEATHER
   drawProgress(display, 30, "Updating", "Weather");
   wunderground.updateConditions(WUNDERGROUND_API_KEY, WUNDERGROUND_LANGUAGE, WUNDERGROUND_COUNTRY, WUNDERGROUND_CITY);
 
@@ -341,15 +418,14 @@ void updateData(OLEDDisplay *display) {
 
   //drawProgress(display, 60, "Updating", "AQI Data");
   //aqi.doUpdate();
-
-  lastUpdate = ntpClient.getFormattedTime();
   readyForWeatherUpdate = false;
+#endif
 
+#if USE_MQTT
   // MQTT Reconnect Check
   if (!mqttClient.connected()) { 
     drawProgress(display, 70, "Reconnecting", "MQTT Broker");
     if (mqttClient.connect("ESP8266Client", mqttUser, mqttPwd)) {
-      Serial.println("connected");
       mqttClient.publish(mqttTopic, "hello world");
       mqttClient.subscribe(mqttTopic);
     }
@@ -358,20 +434,16 @@ void updateData(OLEDDisplay *display) {
     }
     delay(1000);
   }
-  
+#endif
+
   drawProgress(display, 100, "Updating", "Done");
   delay(1000);
 }
 
-const char *wday_str[7] = {
-  "일", "월", "화", "수", "목", "금", "토"
-};
-
+#if USE_NTP
 void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  static const char *wday_str[7] = { "일", "월", "화", "수", "목", "금", "토"  };
   char s[100];
-
-  //String date = wunderground.getDate();
-  //date.toCharArray(s, sizeof(s));
 
   time_t curTime = ntpClient.getRawTime() - 946684800L/*UNIX_OFFSET*/;  // change epoch: 1970->2000
   struct tm tv;
@@ -385,7 +457,9 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.setFont(Helvetica_Bold_24, NewPinetree_Bold_24);
   nfd.drawStringMaxWidth(display, 64 + x, 30 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
 }
+#endif
 
+#if USE_WEATHER
 void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   char s[100];
     
@@ -428,23 +502,13 @@ void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
   nfd.setFont(Helvetica_14, NewPinetree_14);
   nfd.drawStringMaxWidth(display, 20 + x, 48 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
 }
+#endif
 
-void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
-  display->setColor(WHITE);
-  display->setFont(ArialMT_Plain_10);
-  String time = ntpClient.getFormattedTime().substring(0, 5);
-  display->setTextAlignment(TEXT_ALIGN_LEFT);
-  display->drawString(0, 54, time);
-  display->setTextAlignment(TEXT_ALIGN_RIGHT);
-  String temp = wunderground.getCurrentTemp() + "°C";
-  display->drawString(128, 54, temp);
-  display->drawHorizontalLine(0, 52, 128);
-}
-
+#if USE_WIFI
 void setReadyForWeatherUpdate() {
-  Serial.println("Setting readyForUpdate to true");
   readyForWeatherUpdate = true;
 }
+#endif
 
 
 // LED Strip
@@ -479,6 +543,7 @@ void stripFrameIndex(int frameIndex, int frameCount) {
   strip.Show();
 }
 
+#if USE_AQI
 void stripAQI(int frameIndex, int frameCount) {
   RgbColor c = RgbColor(aqi.r * 4 / 255, aqi.g * 4 / 255, aqi.b * 4 / 255);
   strip.SetPixelColor(0, (aqi.val >= 0)?   c : rgb_black);
@@ -487,7 +552,9 @@ void stripAQI(int frameIndex, int frameCount) {
   strip.SetPixelColor(3, (aqi.val >= 150)? c : rgb_black);
   strip.Show();
 }
+#endif
 
+#if USE_MQTT
 void stripMQTT(int frameIndex, int frameCount) {
   strip.SetPixelColor(0, rgb_mqtt_noti);
   strip.SetPixelColor(1, rgb_black);
@@ -495,10 +562,9 @@ void stripMQTT(int frameIndex, int frameCount) {
   strip.SetPixelColor(3, rgb_mqtt_noti);
   strip.Show();
 }
+#endif
 
-
-// AQI Client
-
+#if USE_AQI
 void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   char s[100];
     
@@ -514,32 +580,76 @@ void drawAQI(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t
   nfd.setFont(Helvetica_14, NewPinetree_14);
   nfd.drawStringMaxWidth(display, 64 + x, 46 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
 }
+#endif
 
-
+#if USE_CO2
 // MH-Z19B CO2 Sensor
-
 void drawCO2(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
-  char s[100];
+  static int last_ppm_uart = -1;
+  static unsigned long last_millis = 0;
+  static int is_preheating = 1;
+  static char s[3][100] = { "Initializing...", "", "" };
+  int ppm_uart, temparature;
 
-  if (co2.isPreHeating()) {
-    sprintf(s, "Preheating...");
-    nfd.setFont(Helvetica_Bold_18, NewPinetree_Bold_18);
-    nfd.drawStringMaxWidth(display, 64 + x, 22 + y, nfd.TEXT_ALIGN_CENTER, 128, s);    
+  if (millis() >= last_millis + 1000) {
+    if (co2.isPreHeating()) {
+      sprintf(s[0], "Preheating...");
+      is_preheating = 1;
+    }
+    else {
+      ppm_uart = co2.readCO2UART();
+      temparature = co2.getLastTemperature();
+      if (ppm_uart < 0) {
+        ppm_uart = last_ppm_uart;
+      } else {
+        last_ppm_uart = ppm_uart;
+      }
+      sprintf(s[1], "CO2: %d", ppm_uart);
+      sprintf(s[2], "TEMP: %d C", temparature);
+      is_preheating = 0;
+    }
+    last_millis = millis();
+  }
+
+  if (is_preheating) {
+    nfd.setFont(Helvetica_18, NewPinetree_18);
+    nfd.drawStringMaxWidth(display, 64 + x, 22 + y, nfd.TEXT_ALIGN_CENTER, 128, s[0]);    
   }
   else {
-    int ppm_uart = co2.readCO2UART();
-    int temparature = co2.getLastTemperature();
-    sprintf(s, "CO2: %d PPM", ppm_uart);
-    nfd.setFont(Helvetica_Bold_18, NewPinetree_Bold_18);
-    nfd.drawStringMaxWidth(display, 64 + x, 16 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
-    sprintf(s, "TEMP: %d C", temparature);
+    nfd.setFont(Helvetica_Bold_24, NewPinetree_Bold_24);
+    nfd.drawStringMaxWidth(display, 64 + x, 10 + y, nfd.TEXT_ALIGN_CENTER, 128, s[1]);
     nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
-    nfd.drawStringMaxWidth(display, 64 + x, 36 + y, nfd.TEXT_ALIGN_CENTER, 128, s);
+    nfd.drawStringMaxWidth(display, 64 + x, 38 + y, nfd.TEXT_ALIGN_CENTER, 128, s[2]);
   }
 }
+#endif
 
-// Event Day Display
+#if USE_PMS
+// PLANTOWER PM2.5 PMS7003 / G7 PMS Sensor
+void drawPMS(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  static unsigned long last_millis = 0;
+  static char s[3][100] = { "", "Initializing...", "" };
+  int ppm_uart, temparature;
 
+  if (millis() >= last_millis + 1000) {
+    pms.requestRead();
+    if (pms.readUntil(data)) {
+      // Unit: ug/m3
+      sprintf(s[0], "PM1.0: %d", data.PM_AE_UG_1_0);
+      sprintf(s[1], "PM2.5: %d", data.PM_AE_UG_2_5);
+      sprintf(s[2], "PM10: %d", data.PM_AE_UG_10_0);
+    }
+    last_millis = millis();
+  }
+  
+  nfd.setFont(Helvetica_Bold_18, NewPinetree_Bold_18);
+  nfd.drawStringMaxWidth(display, 64 + x, 2 + y, nfd.TEXT_ALIGN_CENTER, 128, s[0]);
+  nfd.drawStringMaxWidth(display, 64 + x, 23 + y, nfd.TEXT_ALIGN_CENTER, 128, s[1]);
+  nfd.drawStringMaxWidth(display, 64 + x, 44 + y, nfd.TEXT_ALIGN_CENTER, 128, s[2]);
+}
+#endif
+
+#if USE_EVENTDAY
 void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   nfd.setFont(Helvetica_12, NewPinetree_12);
   nfd.drawStringMaxWidth(display, x + 64, 2 + y, nfd.TEXT_ALIGN_CENTER, 128, "Event Days");
@@ -563,10 +673,9 @@ void drawEventDay(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   nfd.setFont(Helvetica_Bold_14, NewPinetree_Bold_14);
   nfd.drawStringMaxWidth(display, x + 64, 42 + y, nfd.TEXT_ALIGN_CENTER, 128, eventMsg);
 }
+#endif
 
-
-// MQTT Client
-
+#if USE_MQTT
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // Switch on the LED if an 1 was received as first character
   if (length >= sizeof(mqttMsg))
@@ -583,4 +692,5 @@ void drawMQTT(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_
   nfd.setFont(Helvetica_18, NewPinetree_18);
   nfd.drawStringMaxWidth(display, x + 64, 20 + y, nfd.TEXT_ALIGN_CENTER, 128, mqttMsg);
 }
+#endif
 
